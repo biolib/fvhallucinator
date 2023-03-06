@@ -1,0 +1,47 @@
+biolib_version: 2
+modules:
+  main:
+    image: 'local-docker://fvhallucinator:latest'
+    command: '/opt/conda/envs/fvhallucinator/bin/python'
+    input_files:
+      - COPY / /home/biolib/
+    output_files: 
+      - COPY /home/biolib/output/ /
+    default_machine: 'gpu.small'
+    
+arguments:
+    -   default_value: 'hallucinate.py'
+        description: 'FvHallucinator Task to run'
+        key: ''
+        key_value_separator: ' '
+        required: false
+        type: dropdown
+        options:
+          'Hallucinate': 'hallucinate.py'
+          'Process Designs': 'process_designs.py'
+          'Generate Fvs': 'generate_fvs_from_sequences.py'
+          'Generate Complexes': 'generate_complexes_from_sequences.py'
+          'Filter': 'filter.py'
+        
+    -
+        default_value: data/herceptin_dataset/1n8z.truncated.pdb
+        description: 'Enter target PDB'
+        key: '--target'
+        key_value_separator: ' '
+        required: False
+        type: file
+
+    -
+        default_value: 10
+        description: 'How many iterations per design?'
+        key: '--iterations'
+        key_value_separator: ' '
+        required: false
+        type: number
+    -
+        default_value: h3
+        description: 'List of CDRs to use'
+        key: '--cdr_list'
+        key_value_separator: ' '
+        required: false
+        type: text

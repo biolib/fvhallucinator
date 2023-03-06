@@ -1,7 +1,7 @@
 import os
 import torch
 import pyrosetta
-
+import time
 from .mds import build_fv_mds
 from .score_functions import *
 from .utils import get_constraint_set_mover, resolve_clashes, disulfidize
@@ -32,7 +32,10 @@ def build_initial_fv(fasta_file: str,
         get_planar_bins(model._num_out_bins - masked_bin_num, rad=True)
     ]
 
+    getting_probs_from_model_time = time.time()
+    print("Getting probs from model")
     probs = get_probs_from_model(model, fasta_file)
+    print(f'Got probs from models in {time.time() - getting_probs_from_model_time}s')
     pred_bin_mats = [bin_matrix(p, are_logits=False) for p in probs]
     pred_value_mats = [
         binned_mat_to_values(pred_bin_mats[i], bins[i])
@@ -41,6 +44,8 @@ def build_initial_fv(fasta_file: str,
 
     dist_mask = pred_value_mats[1] < bins[1][-1][0]
 
+    print('Building FV Mds')
+    mds_time = time.time()
     build_fv_mds(fasta_file,
                  mds_pdb_file,
                  pred_value_mats[1],
@@ -48,6 +53,7 @@ def build_initial_fv(fasta_file: str,
                  pred_value_mats[4],
                  pred_value_mats[5],
                  mask=dist_mask)
+    print(f'MDS built in {time.time() - mds_time}')
 
     pose = pyrosetta.pose_from_pdb(mds_pdb_file)
     disulfidize(pose, pred_value_mats[1])
@@ -61,11 +67,16 @@ def get_cst_file(model: torch.nn.Module, fasta_file: str,
     """
 
     heavy_seq_len = get_heavy_seq_len(fasta_file)
+    print("Getting residue pairs")
+    res_time = time.time()
     residue_pairs = get_constraint_residue_pairs(model,
                                                  fasta_file,
                                                  heavy_seq_len,
                                                  use_logits=True)
 
+    print(f"Got residue pairs in {time.time() - res_time}")
+
+    print("Getting cst file")
     all_cst_file = get_filtered_constraint_file(
         residue_pairs=residue_pairs,
         constraint_dir=os.path.join(constraint_dir, "all_csm"),
@@ -76,6 +87,8 @@ def get_cst_file(model: torch.nn.Module, fasta_file: str,
             ConstraintType.phi_planar
         ],
         prob_to_energy=logit_to_energy)
+
+    print("Getting HB file")
     hb_cst_file = get_filtered_constraint_file(
         residue_pairs=residue_pairs,
         constraint_dir=os.path.join(constraint_dir, "hb_csm"),
@@ -179,6 +192,8 @@ def refine_fv(in_pdb_file: str,
     ############################################################################
     # Load initial pose
     ############################################################################
+    print("Reading pdb for Fv Refinement..")
+    time_read = time.time()
     pose = pyrosetta.pose_from_pdb(in_pdb_file)
 
     switch_cen = pyrosetta.rosetta.protocols.simple_moves.SwitchResidueTypeSetMover(
@@ -189,6 +204,7 @@ def refine_fv(in_pdb_file: str,
 
     csm = get_constraint_set_mover(cst_file)
     csm.apply(pose)
+    print(f"Read PDB and applied constraints in: {time.time() - time_read}")
 
     ############################################################################
     # Apply global centroid movers
@@ -196,11 +212,16 @@ def refine_fv(in_pdb_file: str,
     if verbose:
         print('centroid minimize...')
 
+    centroid_time = time.time()
     centroid_fold_mover = get_centroid_min_mover()
     switch_cen.apply(pose)
     centroid_fold_mover.apply(pose)
-
+    print(f"Centroid minimization done in {time.time() - centroid_time}")
+    print("Removing clashes from pose...")
+    clash_time = time.time()
     resolve_clashes(pose)
+    print(f"Removed clashes in {time.time() - clash_time}")
+
 
     ############################################################################
     # Apply full atom relax
@@ -208,9 +229,11 @@ def refine_fv(in_pdb_file: str,
     if verbose:
         print('full atom relax...')
 
+    relax_time = time.time()
     fa_relax_mover = get_fa_relax_mover()
     switch_fa.apply(pose)
     fa_relax_mover.apply(pose)
+    print(f"Did full atom relaxation in {time.time() - relax_time}")
 
     ############################################################################
     # Apply full atom refinement
@@ -218,6 +241,7 @@ def refine_fv(in_pdb_file: str,
     if verbose:
         print("full atom minimize...")
 
+    fa_min_time = time.time()
     fa_min_mover = get_fa_min_mover()
     fa_min_mover.apply(pose)
 
@@ -225,6 +249,8 @@ def refine_fv(in_pdb_file: str,
 
     sf_fa_cst = get_sf_fa()
     score = sf_fa_cst(pose)
+
+    print(f"Did full atom minimization in {time.time() - fa_min_time}")
     
     if verbose:
        print("score ", score)

@@ -75,7 +75,7 @@ def process_hallucination_output(target_pdb,
     print("Indices <-> Chothia: ", dict_residues)
     
     if not os.path.exists(out_path):
-        os.mkdir(out_path)
+        os.makedirs(out_path, exist_ok=True)
     
     data_reader = HallucinationDataReader(indices_hal, target_pdb, trajfiles_path)
     outfile = os.path.join(out_path, 'sequences.fasta')

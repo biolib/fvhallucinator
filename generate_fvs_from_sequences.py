@@ -5,6 +5,7 @@ import json
 import glob
 
 import numpy as np
+import time
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -35,8 +36,10 @@ from src.hallucination.utils.rmsd_plotting_utils import plot_logos_for_design_id
     mutate_and_get_per_residue_rmsd, mutate_and_get_metrics,\
     frscores_vs_rosettascores
 import torch
+torch.cuda.is_available = lambda: False
 
-init_string = "-mute all -check_cdr_chainbreaks false -detect_disulf true"
+#init_string = "-mute all -check_cdr_chainbreaks false -detect_disulf true"
+init_string = "-check_cdr_chainbreaks false -detect_disulf true"
 pyrosetta.init(init_string)
 torch.no_grad()
 
@@ -199,7 +202,9 @@ def _read_agg_stat_files(stat_file):
     return hal_struct_metrics
 
 
-def plot_folded_structure_metrics(path,
+def plot_folded_structure_metrics(
+                                  output_dir,
+                                  path,
                                   prev,
                                   last,
                                   filename='intermediate/stats_pdb',
@@ -220,7 +225,7 @@ def plot_folded_structure_metrics(path,
         raise FileNotFoundError('No files {} found in {}'.format(
             filename, path))
 
-    path_results = '{}/results'.format(path)
+    path_results = '{}/results'.format(output_dir)
     os.makedirs(path_results, exist_ok=True)
 
     all_metrics = []
@@ -346,8 +351,11 @@ def plot_folded_structure_metrics(path,
     import matplotlib
     matplotlib.rcParams.update(theme)
     fig = plt.figure(figsize=(5, 4))
-    sns.histplot(data=agg_metrics, x='Score', stat="count",
-                 color='darkblue', binwidth=3.0)
+    try:
+        sns.histplot(data=agg_metrics, x='Score', stat="count",
+                    color='darkblue', binwidth=1)
+    except Exception as error:
+        print(f"Skipping histplot due to {error}")
     if target_pdb is not None:
         plt.axvline(score_wt, ls='--', lw=2.0, c='black', zorder=1)
     ax = plt.gca()
@@ -395,7 +403,10 @@ def plot_folded_structure_metrics(path,
                                     value_vars=labellist, var_name='Position', value_name='RMSD', ignore_index=False)
                 df_perres['design_id'] = [
                     int(name.split('_')[1]) for name in list(df_perres['pdb_name'])]
-                ax = sns.boxplot(data=df_perres, x='Position', y='RMSD')
+                try:
+                    ax = sns.boxplot(data=df_perres, x='Position', y='RMSD')
+                except Exception as error:
+                    print(f"Skipping boxplot due to {error}")
                 plt.xticks(rotation=45)
                 plt.ylabel(r'RMSD ($\AA$)')
                 plt.tight_layout()
@@ -445,14 +456,19 @@ def build_structure(model,
     os.makedirs(constraint_dir, exist_ok=True)
 
     cst_file = os.path.join(constraint_dir, "hb_csm", "constraints.cst")
+    print("Getting constraints")
     cst_file = get_cst_file(model, fasta_file, constraint_dir)
+    print("Got constraints")
 
     out_dir_int = os.path.join(out_dir, 'intermediate')
     if not os.path.exists(out_dir_int):
         os.makedirs(out_dir_int, exist_ok=True)
     mds_pdb_file = os.path.join(out_dir_int, "{}.mds.pdb".format(target))
 
+    print("Building initial Fv")
+    fv_time = time.time()
     build_initial_fv(fasta_file, mds_pdb_file, model)
+    print(f'Built initi')
     renum_mds_file = os.path.join(out_dir_int,
                                   "{}.mds_renum.pdb".format(target))
     if not target_pdb is None:
@@ -547,6 +563,7 @@ def generate_pdb_from_model(sequences_file,
                                        '{}.deepAb.pdb'.format(target))
         if not os.path.exists(deepab_pdb_file):
             # skip files already processed.
+            start_build_time = time.time()
             build_structure(model,
                             fasta_file,
                             out_dir_ff,
@@ -555,13 +572,20 @@ def generate_pdb_from_model(sequences_file,
                             num_decoys=num_decoys,
                             use_cluster=use_cluster)
 
+            print("Built structure for traj ", i)
+            print(f'Time: {time.time() - start_build_time}')
+
         if target_pdb is None:
             continue
 
+        start_RMSD_time = time.time()
         rmsd_metrics_all, rmsd_metrics_perres = \
             get_rmsd_metrics_for_pdb(deepab_pdb_file, target_pdb, out_dir_ff,
                                      target, indices_hal, num_decoys=num_decoys,
                                      relax_design=relax_design)
+        print("Got RMSD metrics for traj ", i)
+        print(f'Time: {time.time() - start_RMSD_time}')
+
 
         all_metrics.append(rmsd_metrics_all)
         all_per_residue_rmsds.append(rmsd_metrics_perres)
@@ -786,7 +810,8 @@ if __name__ == '__main__':
             raise FileNotFoundError('For --plot_consolidated_funnels option , \
                 provide valid path for forward folded pdbs with --path_forward_folded'
                                     )
-        plot_folded_structure_metrics(args.path_forward_folded,
+        plot_folded_structure_metrics(args.outdir,
+                                      args.path_forward_folded,
                                       args.start,
                                       args.end,
                                       indices_hal=indices_hal,
@@ -801,6 +826,7 @@ if __name__ == '__main__':
             target_pdb = args.target_pdb
             indices_hal = get_hal_indices(args)
 
+        print("Running generate_pdb_from_model")
         generate_pdb_from_model(args.designed_seq_file,
                                 target_pdb,
                                 model_files,

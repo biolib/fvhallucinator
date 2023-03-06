@@ -94,7 +94,9 @@ def get_constraint_residue_pairs(model: torch.nn.Module,
     residue_pairs = []
     for i in tqdm(range(len(seq))):
         residue_i = Residue(identity=seq[i], index=i + 1)
+        print(f"Residue {i}")
         for j in range(i):
+            print(f"Residue {j}")
             residue_j = Residue(identity=seq[j], index=j + 1)
 
             ij_constraints = []
@@ -158,10 +160,13 @@ def get_constraint_residue_pairs(model: torch.nn.Module,
                             y_scale=y_scale[i, j])
                     ]
 
+                print(f"Residue {j} done")
+
             residue_pairs.append(
                 ResiduePair(residue_1=residue_i,
                             residue_2=residue_j,
                             constraints=ij_constraints))
+            print(f"Residue {i} done")
 
     return residue_pairs
 
