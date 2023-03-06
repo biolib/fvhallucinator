@@ -80,3 +80,4 @@ temp/
 .DS_Store
 temp_weblogo
 *.sh
+/PyRosetta4.Release.python37.linux.release-321.tar.bz2
